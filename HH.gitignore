@@ -1,0 +1,10 @@
+# Ignore generated output files
+*.txt
+
+# Ignore Python cache
+__pycache__/
+
+# Ignore virtual environment folders
+.venv/
+venv/
+env/
