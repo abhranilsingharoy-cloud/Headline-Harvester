@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python news_scraper.py
 ```
 
-Features
+# Features
 
 · Multi-source support (RSS & HTML)
 · JSON and TXT output formats
@@ -21,7 +21,7 @@ Features
 · Error handling with retry logic
 · Comprehensive logging
 
-Configuration
+# Configuration
 
 Edit config.json to customize:
 
@@ -34,7 +34,7 @@ Edit config.json to customize:
 }
 ```
 
-Usage Examples
+# Usage Examples
 
 ```bash
 # Custom configuration
@@ -47,23 +47,19 @@ python news_scraper.py --url "https://rss.cnn.com/rss/edition.rss"
 python news_scraper.py --output json
 ```
 
-Output
+# Output
 
 Generates timestamped files:
 
 · news_headlines_YYYYMMDD_HHMMSS.txt
 · news_headlines_YYYYMMDD_HHMMSS.json
 
-Dependencies
+# Dependencies
 
 · requests
 · beautifulsoup4
 · lxml
 · urllib3
 
-Legal
 
-Respect website terms of service and robots.txt. For educational use.
-
-*Copy-friendly format with essential information only.*
 ```
