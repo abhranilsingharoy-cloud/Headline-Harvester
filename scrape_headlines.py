@@ -1,229 +1,325 @@
-#!/usr/bin/env python3
 """
-scrape_headlines.py
-
-Advanced, production-ready web scraper to extract top headlines from a news site.
-
-Features:
-- Robust HTTP session with retries and backoff
-- Configurable CSS selectors (supports multiple selectors)
-- Deduplication and basic text normalization
-- CLI with arguments and optional config file
-- Logging and graceful error handling
-- Outputs to a .txt file (one headline per line)
+Advanced News Headlines Scraper
+Author: AI Assistant
+Date: 2024
+Description: Professional web scraper for extracting news headlines with advanced features
 """
-
-from __future__ import annotations
-import argparse
-import json
-import logging
-import sys
-import time
-from dataclasses import dataclass, field
-from typing import List, Optional, Set
 
 import requests
 from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import json
+import time
+import logging
+from urllib.parse import urljoin, urlparse
+import os
+from datetime import datetime
+from typing import List, Dict, Optional
+import argparse
+import sys
 
-# -----------------------
-# Configuration dataclass
-# -----------------------
-@dataclass
-class ScraperConfig:
-    url: str
-    selectors: List[str] = field(default_factory=lambda: ["h1", "h2", ".headline", ".top-story"])
-    output_file: str = "headlines.txt"
-    user_agent: str = "Mozilla/5.0 (compatible; HeadlineScraper/1.0; +https://example.com/bot)"
-    timeout: int = 10
-    max_headlines: Optional[int] = None  # None => no limit
-    verify_ssl: bool = True
-    retries: int = 3
-    backoff_factor: float = 0.5
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('scraper.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
-# -----------------------
-# Logging setup
-# -----------------------
-def setup_logging(level: str = "INFO") -> None:
-    fmt = "%(asctime)s [%(levelname)s] %(message)s"
-    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format=fmt)
-
-# -----------------------
-# HTTP fetching with retries
-# -----------------------
-def create_session(config: ScraperConfig) -> requests.Session:
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=config.retries,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "OPTIONS"],
-        backoff_factor=config.backoff_factor,
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    session.headers.update({"User-Agent": config.user_agent})
-    return session
-
-def fetch_html(session: requests.Session, url: str, timeout: int, verify: bool) -> str:
-    logging.info("Fetching URL: %s", url)
-    try:
-        resp = session.get(url, timeout=timeout, verify=verify)
-        resp.raise_for_status()
-        logging.debug("Response status: %s", resp.status_code)
-        return resp.text
-    except requests.RequestException as e:
-        logging.error("Failed to fetch URL '%s': %s", url, e)
-        raise
-
-# -----------------------
-# Parsing and cleaning
-# -----------------------
-def normalize_text(s: str) -> str:
-    # Basic normalization: strip, collapse whitespace
-    return " ".join(s.split()).strip()
-
-def parse_headlines(html: str, selectors: List[str], limit: Optional[int] = None) -> List[str]:
-    soup = BeautifulSoup(html, "html.parser")
-    seen: Set[str] = set()
-    headlines: List[str] = []
-
-    logging.info("Parsing HTML with selectors: %s", selectors)
-
-    # Search in order of selectors
-    for sel in selectors:
-        # If selector is simple (h1,h2) use soup.find_all; CSS selectors otherwise
-        elements = soup.select(sel)
-        logging.debug("Selector '%s' returned %d elements", sel, len(elements))
-        for el in elements:
-            # Text extraction: prefer .get_text, fallback to .string
-            text = el.get_text(separator=" ", strip=True) if el else ""
-            if not text:
+class NewsScraper:
+    """Advanced web scraper for news headlines extraction"""
+    
+    def __init__(self, config_file: str = None):
+        self.session = requests.Session()
+        self.setup_session()
+        self.config = self.load_config(config_file)
+        
+    def setup_session(self) -> None:
+        """Configure HTTP session with proper headers"""
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
+    
+    def load_config(self, config_file: Optional[str]) -> Dict:
+        """Load configuration from file or use defaults"""
+        default_config = {
+            'target_urls': [
+                'https://feeds.bbci.co.uk/news/rss.xml',
+                'https://rss.cnn.com/rss/edition.rss'
+            ],
+            'timeout': 10,
+            'max_retries': 3,
+            'retry_delay': 2,
+            'output_format': 'both',  # txt, json, or both
+            'selectors': {
+                'rss': ['title', 'description'],
+                'html': ['h1', 'h2', 'h3', '.headline', '.title']
+            }
+        }
+        
+        if config_file and os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    user_config = json.load(f)
+                    default_config.update(user_config)
+                logger.info(f"Configuration loaded from {config_file}")
+            except Exception as e:
+                logger.warning(f"Failed to load config file: {e}. Using defaults.")
+        
+        return default_config
+    
+    def is_valid_url(self, url: str) -> bool:
+        """Validate URL format"""
+        try:
+            result = urlparse(url)
+            return all([result.scheme, result.netloc])
+        except Exception:
+            return False
+    
+    def fetch_content(self, url: str) -> Optional[str]:
+        """Fetch URL content with error handling and retries"""
+        if not self.is_valid_url(url):
+            logger.error(f"Invalid URL: {url}")
+            return None
+        
+        for attempt in range(self.config['max_retries']):
+            try:
+                response = self.session.get(
+                    url, 
+                    timeout=self.config['timeout'],
+                    allow_redirects=True
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully fetched {url}")
+                return response.text
+                
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Attempt {attempt + 1} failed for {url}: {e}")
+                if attempt < self.config['max_retries'] - 1:
+                    time.sleep(self.config['retry_delay'])
                 continue
-            text = normalize_text(text)
-            if not text or text in seen:
-                continue
-            seen.add(text)
-            headlines.append(text)
-            if limit and len(headlines) >= limit:
-                logging.info("Reached headline limit: %d", limit)
-                return headlines
+        
+        logger.error(f"All attempts failed for {url}")
+        return None
+    
+    def parse_rss_feed(self, content: str, source: str) -> List[Dict[str, str]]:
+        """Parse RSS feed content"""
+        headlines = []
+        try:
+            # Use 'lxml-xml' for robust XML parsing
+            soup = BeautifulSoup(content, 'lxml-xml') 
+            items = soup.find_all('item')
+            
+            for item in items:
+                headline_data = {
+                    'title': getattr(item.find('title'), 'text', '').strip(),
+                    'description': getattr(item.find('description'), 'text', '').strip(),
+                    'link': getattr(item.find('link'), 'text', '').strip(),
+                    'pubDate': getattr(item.find('pubDate'), 'text', '').strip(),
+                    'source': source
+                }
+                if headline_data['title']:  # Only add if title exists
+                    headlines.append(headline_data)
+                    
+            logger.info(f"Parsed {len(headlines)} headlines from RSS feed")
+            
+        except Exception as e:
+            logger.error(f"Error parsing RSS feed: {e}")
+            
+        return headlines
+    
+    def parse_html_content(self, content: str, source: str) -> List[Dict[str, str]]:
+        """Parse HTML content for headlines"""
+        headlines = []
+        try:
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            # Try multiple selectors for headline extraction
+            for selector in self.config['selectors']['html']:
+                # Use soup.select() for all selectors (tags, classes, etc.)
+                elements = soup.select(selector)
+                
+                for element in elements:
+                    text = element.get_text().strip()
+                    
+                    if text and len(text) > 10:  # Basic validation
+                        link = ''
+                        # Try to find the link (href)
+                        if element.name == 'a':
+                            link = element.get('href')
+                        else:
+                            # Search for an 'a' tag inside or as a parent
+                            parent_link = element.find_parent('a')
+                            child_link = element.find('a')
+                            if parent_link:
+                                link = parent_link.get('href')
+                            elif child_link:
+                                link = child_link.get('href')
 
-    # As a fallback: try generic title tag if no headlines found
-    if not headlines:
-        title_tag = soup.find("title")
-        if title_tag and title_tag.text:
-            title = normalize_text(title_tag.text)
-            headlines.append(title)
-            logging.info("No selector matches; falling back to <title>.")
+                        # Resolve relative links
+                        if link:
+                            link = urljoin(source, link)
 
-    logging.info("Extracted %d unique headlines", len(headlines))
-    return headlines
+                        headlines.append({
+                            'title': text,
+                            'link': link,
+                            'source': source,
+                            'type': 'html',
+                            'selector': selector
+                        })
+                
+                # --- LOGICAL ERROR FIXED ---
+                # Removed the 'if headlines: break' block
+                # to allow the loop to check ALL selectors.
+            
+            logger.info(f"Parsed {len(headlines)} headlines from HTML")
+            
+        except Exception as e:
+            logger.error(f"Error parsing HTML: {e}")
+            
+        return headlines
+    
+    def scrape_url(self, url: str) -> List[Dict[str, str]]:
+        """Scrape headlines from a single URL"""
+        content = self.fetch_content(url)
+        if not content:
+            return []
+        
+        # Determine content type and parse accordingly
+        if 'rss' in url.lower() or 'xml' in url.lower():
+            return self.parse_rss_feed(content, url)
+        else:
+            return self.parse_html_content(content, url)
+    
+    def save_headlines_txt(self, headlines: List[Dict[str, str]], filename: str) -> None:
+        """Save headlines to text file with formatting"""
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(f"NEWS HEADLINES SCRAPER REPORT\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Total Headlines: {len(headlines)}\n")
+                f.write("=" * 80 + "\n\n")
+                
+                current_source = ""
+                for headline in headlines:
+                    if headline['source'] != current_source:
+                        current_source = headline['source']
+                        f.write(f"\nSOURCE: {current_source}\n")
+                        f.write("-" * 60 + "\n")
+                    
+                    f.write(f"• {headline['title']}\n")
+                    
+                    if headline.get('description'):
+                        f.write(f"  Desc: {headline['description']}\n")
+                    
+                    if headline.get('link'):
+                        f.write(f"  Link: {headline['link']}\n")
 
-# -----------------------
-# Persistence
-# -----------------------
-def save_headlines(headlines: List[str], filename: str) -> None:
-    logging.info("Saving %d headlines to %s", len(headlines), filename)
+                    if headline.get('pubDate'):
+                        f.write(f"  Published: {headline['pubDate']}\n")
+                    
+                    f.write("\n")
+            
+            logger.info(f"Headlines saved to {filename}")
+            
+        except Exception as e:
+            logger.error(f"Error saving to TXT file: {e}")
+    
+    def save_headlines_json(self, headlines: List[Dict[str, str]], filename: str) -> None:
+        """Save headlines to JSON file with metadata"""
+        try:
+            output_data = {
+                'metadata': {
+                    'generated_at': datetime.now().isoformat(),
+                    'total_headlines': len(headlines),
+                    'sources': list(set(h['source'] for h in headlines))
+                },
+                'headlines': headlines
+            }
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Headlines saved to {filename}")
+            
+        except Exception as e:
+            logger.error(f"Error saving to JSON file: {e}")
+    
+    def run_scraper(self) -> Dict[str, List[Dict[str, str]]]:
+        """Main method to run the scraper"""
+        logger.info("Starting news headlines scraping process...")
+        
+        all_headlines = []
+        results = {}
+        
+        for url in self.config['target_urls']:
+            logger.info(f"Scraping: {url}")
+            headlines = self.scrape_url(url)
+            all_headlines.extend(headlines)
+            results[url] = headlines
+            
+            # Be respectful to servers
+            time.sleep(1)
+        
+        # Save outputs based on configuration
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_filename = f"news_headlines_{timestamp}"
+        
+        output_format = self.config.get('output_format', 'both')
+        
+        if output_format in ['txt', 'both']:
+            self.save_headlines_txt(all_headlines, f"{base_filename}.txt")
+        
+        if output_format in ['json', 'both']:
+            self.save_headlines_json(all_headlines, f"{base_filename}.json")
+        
+        logger.info(f"Scraping completed. Total headlines collected: {len(all_headlines)}")
+        return results
+
+def main():
+    """Command line interface for the news scraper"""
+    parser = argparse.ArgumentParser(description='Advanced News Headlines Scraper')
+    parser.add_argument('--config', '-c', help='Path to configuration file')
+    parser.add_argument('--url', '-u', help='Single URL to scrape (overrides config)')
+    parser.add_argument('--output', '-o', choices=['txt', 'json', 'both'], 
+                       help='Output format (overrides config)')
+    
+    args = parser.parse_args()
+    
+    # Initialize scraper
+    scraper = NewsScraper(args.config)
+    
+    # Override config if command line arguments provided
+    if args.url:
+        scraper.config['target_urls'] = [args.url]
+    
+    if args.output:
+        scraper.config['output_format'] = args.output
+    
     try:
-        # Write safely (atomic write could be implemented if needed)
-        with open(filename, "w", encoding="utf-8") as fh:
-            for h in headlines:
-                fh.write(h + "\n")
-    except IOError as e:
-        logging.error("Failed to write to file '%s': %s", filename, e)
-        raise
-
-# -----------------------
-# CLI & Orchestration
-# -----------------------
-def load_config_file(path: str) -> dict:
-    logging.info("Loading config file: %s", path)
-    with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-def build_config_from_args(args: argparse.Namespace) -> ScraperConfig:
-    if args.config:
-        cfg_data = load_config_file(args.config)
-        # Merge CLI overrides into config file values
-        url = args.url or cfg_data.get("url")
-        selectors = args.selectors or cfg_data.get("selectors", [])
-        output_file = args.output or cfg_data.get("output_file", "headlines.txt")
-        user_agent = args.user_agent or cfg_data.get("user_agent")
-        timeout = args.timeout if args.timeout is not None else cfg_data.get("timeout", 10)
-        max_headlines = args.max_headlines if args.max_headlines is not None else cfg_data.get("max_headlines")
-        retries = args.retries if args.retries is not None else cfg_data.get("retries", 3)
-        backoff_factor = args.backoff if args.backoff is not None else cfg_data.get("backoff_factor", 0.5)
-    else:
-        url = args.url
-        selectors = args.selectors or []
-        output_file = args.output
-        user_agent = args.user_agent
-        timeout = args.timeout
-        max_headlines = args.max_headlines
-        retries = args.retries
-        backoff_factor = args.backoff
-
-    if not url:
-        logging.error("No URL provided. Use --url or provide it in the config file.")
-        raise SystemExit(2)
-
-    cfg = ScraperConfig(
-        url=url,
-        selectors=selectors or ["h1", "h2", ".headline", ".top-story"],
-        output_file=output_file or "headlines.txt",
-        user_agent=user_agent or ScraperConfig().user_agent,
-        timeout=timeout or 10,
-        max_headlines=max_headlines,
-        verify_ssl=not args.insecure,
-        retries=retries or 3,
-        backoff_factor=backoff_factor or 0.5,
-    )
-    logging.debug("Built ScraperConfig: %s", cfg)
-    return cfg
-
-def parse_cli_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Advanced Web Scraper for News Headlines")
-    p.add_argument("--url", "-u", help="URL of the news page to scrape")
-    p.add_argument("--selectors", "-s", nargs="+", help="CSS selectors to locate headlines (in order)")
-    p.add_argument("--output", "-o", help="Output .txt file name (default: headlines.txt)", default="headlines.txt")
-    p.add_argument("--max-headlines", "-m", type=int, help="Maximum number of headlines to collect")
-    p.add_argument("--user-agent", help="Custom User-Agent string")
-    p.add_argument("--timeout", type=int, help="Request timeout in seconds", default=10)
-    p.add_argument("--retries", type=int, help="Number of retries for requests", default=3)
-    p.add_argument("--backoff", type=float, help="Backoff factor between retries", default=0.5)
-    p.add_argument("--config", "-c", help="Optional JSON config file")
-    p.add_argument("--insecure", action="store_true", help="Disable SSL verification (not recommended)")
-    p.add_argument("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
-    return p.parse_args(argv)
-
-def main(argv: Optional[List[str]] = None) -> None:
-    args = parse_cli_args(argv)
-    setup_logging(args.log_level)
-
-    try:
-        cfg = build_config_from_args(args)
-    except SystemExit:
-        raise
+        results = scraper.run_scraper()
+        
+        # Print summary to console
+        total_headlines = sum(len(headlines) for headlines in results.values())
+        print(f"\n=== SCRAPING SUMMARY ===")
+        print(f"Sources processed: {len(results)}")
+        print(f"Total headlines collected: {total_headlines}")
+        
+        for url, headlines in results.items():
+            print(f"  - {url}: {len(headlines)} headlines")
+            
+    except KeyboardInterrupt:
+        logger.info("Scraping interrupted by user")
     except Exception as e:
-        logging.exception("Failed to build configuration: %s", e)
-        raise SystemExit(1)
-
-    session = create_session(cfg)
-
-    try:
-        html = fetch_html(session, cfg.url, cfg.timeout, cfg.verify_ssl)
-        headlines = parse_headlines(html, cfg.selectors, limit=cfg.max_headlines)
-        if not headlines:
-            logging.warning("No headlines extracted. Exiting with no output.")
-            raise SystemExit(0)
-        save_headlines(headlines, cfg.output_file)
-        logging.info("Done. Wrote %d headlines to %s", len(headlines), cfg.output_file)
-    except Exception as e:
-        logging.exception("An error occurred during scraping: %s", e)
-        raise SystemExit(1)
+        logger.error(f"Scraping failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
