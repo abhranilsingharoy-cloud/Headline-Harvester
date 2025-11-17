@@ -1,17 +1,10 @@
-***
-# Headline Harvester – News Scraper
+# Advanced Headline Scraper
 
-A Python-based automated web scraper that extracts top news headlines from BBC News.
+## Overview
+This script extracts top headlines from a public news webpage and writes them to a `.txt` file (one headline per line). It is robust, configurable, and intended for educational/archival use on publicly accessible pages.
 
-## 🚀 Features
-- Fetches live headlines from BBC News
-- Uses stable CSS selectors to avoid breakage
-- Saves headlines to timestamped text reports
-- Clean logging and error handling
-
-## 📦 Installation
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
+## Installation
+1. Create a virtualenv:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
