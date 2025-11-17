@@ -1,4 +1,4 @@
-```markdown
+
 # Headline-Harvester
 
 Professional web scraper for automated news headline extraction from RSS feeds and websites.
