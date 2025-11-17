@@ -1,0 +1,10 @@
+{
+  "url": "https://www.example-news-site.com",
+  "selectors": ["header h1", ".main-headline", ".article-card h2"],
+  "output_file": "headlines.txt",
+  "user_agent": "Mozilla/5.0 (compatible; HeadlineScraper/1.0; +https://example.com/bot)",
+  "timeout": 10,
+  "max_headlines": 50,
+  "retries": 3,
+  "backoff_factor": 0.5
+}
