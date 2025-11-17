@@ -77,7 +77,8 @@ class NewsHeadlineScraper:
             # Build CSS selector based on parameters
             selector = tag
             if class_:
-                selector = f"{tag}.{class_}" if '.' not in class_ else f"{tag}[class*='{class_}']"
+                # Updated selector to handle partial class matches
+                selector = f"{tag}[class*='{class_}']"
             
             headline_elements = soup.select(selector)
             headlines = [elem.get_text().strip() for elem in headline_elements]
@@ -132,14 +133,20 @@ class NewsHeadlineScraper:
             logger.error(f"Failed to save headlines to file: {e}")
             return None
 
+# --- THIS IS THE FIXED SECTION ---
+
 def main():
     """
     Main execution function demonstrating the scraper usage
     """
-    # Configuration - Update these parameters based on target website
-    TARGET_URL = "https://example-news-website.com"  # Replace with actual news website
-    HEADLINE_TAG = "h2"  # HTML tag containing headlines
-    HEADLINE_CLASS = "headline"  # CSS class for headlines (adjust as needed)
+    # Configuration - Updated with real parameters for bbc.com/news
+    
+    # 1. Use a real, existing URL
+    TARGET_URL = "https://www.bbc.com/news"
+    
+    # 2. Use the correct tag and class found by "Inspecting" the site
+    HEADLINE_TAG = "h3"  # On BBC, many headlines are <h3>
+    HEADLINE_CLASS = "gs-c-promo-heading" # This is part of the class name
     
     # Initialize scraper
     scraper = NewsHeadlineScraper(TARGET_URL)
@@ -159,7 +166,8 @@ def main():
             print(f"Scraping completed successfully. Output file: {output_file}")
             print(f"Extracted {len(headlines)} headlines from {scraper.domain}")
         else:
-            print("No headlines were extracted. Please check the HTML structure.")
+            print(f"No headlines were extracted using tag='{HEADLINE_TAG}' and class='{HEADLINE_CLASS}'.")
+            print("Please check the website's HTML structure again.")
     else:
         print("Failed to retrieve webpage content.")
 
