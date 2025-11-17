@@ -1,0 +1,15 @@
+{
+    "target_urls": [
+        "https://feeds.bbci.co.uk/news/rss.xml",
+        "https://rss.cnn.com/rss/edition.rss",
+        "https://feeds.reuters.com/reuters/topNews"
+    ],
+    "timeout": 15,
+    "max_retries": 3,
+    "retry_delay": 1,
+    "output_format": "both",
+    "selectors": {
+        "rss": ["title", "description", "link", "pubDate"],
+        "html": ["h1", "h2", "h3", ".headline", ".title", ".story-title"]
+    }
+}
