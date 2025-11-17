@@ -1,10 +1,68 @@
-# Advanced Headline Scraper
+```markdown
+# Headline-Harvester
 
-## Overview
-This script extracts top headlines from a public news webpage and writes them to a `.txt` file (one headline per line). It is robust, configurable, and intended for educational/archival use on publicly accessible pages.
+Professional web scraper for automated news headline extraction from RSS feeds and websites.
 
-## Installation
-1. Create a virtualenv:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
+## Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run with default configuration
+python news_scraper.py
+```
+
+Features
+
+· Multi-source support (RSS & HTML)
+· JSON and TXT output formats
+· Configurable scraping parameters
+· Error handling with retry logic
+· Comprehensive logging
+
+Configuration
+
+Edit config.json to customize:
+
+```json
+{
+    "target_urls": ["https://feeds.bbci.co.uk/news/rss.xml"],
+    "timeout": 15,
+    "max_retries": 3,
+    "output_format": "both"
+}
+```
+
+Usage Examples
+
+```bash
+# Custom configuration
+python news_scraper.py --config config.json
+
+# Single URL
+python news_scraper.py --url "https://rss.cnn.com/rss/edition.rss"
+
+# Output format
+python news_scraper.py --output json
+```
+
+Output
+
+Generates timestamped files:
+
+· news_headlines_YYYYMMDD_HHMMSS.txt
+· news_headlines_YYYYMMDD_HHMMSS.json
+
+Dependencies
+
+· requests
+· beautifulsoup4
+· lxml
+· urllib3
+
+Legal
+
+Respect website terms of service and robots.txt. For educational use.
+
+```
