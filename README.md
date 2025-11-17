@@ -65,4 +65,5 @@ Legal
 
 Respect website terms of service and robots.txt. For educational use.
 
+*Copy-friendly format with essential information only.*
 ```
