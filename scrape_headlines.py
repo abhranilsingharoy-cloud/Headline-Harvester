@@ -13,7 +13,7 @@ import logging
 from urllib.parse import urljoin, urlparse
 import os
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import argparse
 import sys
 
@@ -83,6 +83,12 @@ class NewsScraper:
         except Exception:
             return False
     
+    def _safe_get_text(self, element: Any) -> str:
+        """Helper to safely extract text from a BS4 element"""
+        if element:
+            return element.get_text(strip=True)
+        return ""
+
     def fetch_content(self, url: str) -> Optional[str]:
         """Fetch URL content with error handling and retries"""
         if not self.is_valid_url(url):
@@ -113,16 +119,23 @@ class NewsScraper:
         """Parse RSS feed content"""
         headlines = []
         try:
-            # Use 'lxml-xml' for robust XML parsing
-            soup = BeautifulSoup(content, 'lxml-xml') 
+            # Try lxml first, fall back to html.parser if lxml is missing
+            try:
+                soup = BeautifulSoup(content, 'lxml-xml')
+            except Exception:
+                soup = BeautifulSoup(content, 'xml') 
+                
             items = soup.find_all('item')
             
             for item in items:
+                # FIX: Used helper method to avoid 'NoneType' errors
+                title_text = self._safe_get_text(item.find('title'))
+                
                 headline_data = {
-                    'title': getattr(item.find('title'), 'text', '').strip(),
-                    'description': getattr(item.find('description'), 'text', '').strip(),
-                    'link': getattr(item.find('link'), 'text', '').strip(),
-                    'pubDate': getattr(item.find('pubDate'), 'text', '').strip(),
+                    'title': title_text,
+                    'description': self._safe_get_text(item.find('description')),
+                    'link': self._safe_get_text(item.find('link')),
+                    'pubDate': self._safe_get_text(item.find('pubDate')),
                     'source': source
                 }
                 if headline_data['title']:  # Only add if title exists
@@ -143,7 +156,6 @@ class NewsScraper:
             
             # Try multiple selectors for headline extraction
             for selector in self.config['selectors']['html']:
-                # Use soup.select() for all selectors (tags, classes, etc.)
                 elements = soup.select(selector)
                 
                 for element in elements:
@@ -153,19 +165,21 @@ class NewsScraper:
                         link = ''
                         # Try to find the link (href)
                         if element.name == 'a':
-                            link = element.get('href')
+                            link_raw = element.get('href')
                         else:
                             # Search for an 'a' tag inside or as a parent
                             parent_link = element.find_parent('a')
                             child_link = element.find('a')
+                            
+                            link_raw = None
                             if parent_link:
-                                link = parent_link.get('href')
+                                link_raw = parent_link.get('href')
                             elif child_link:
-                                link = child_link.get('href')
-
-                        # Resolve relative links
-                        if link:
-                            link = urljoin(source, link)
+                                link_raw = child_link.get('href')
+                        
+                        # FIX: Explicit string conversion for urljoin
+                        if link_raw:
+                            link = urljoin(source, str(link_raw))
 
                         headlines.append({
                             'title': text,
@@ -174,10 +188,6 @@ class NewsScraper:
                             'type': 'html',
                             'selector': selector
                         })
-                
-                # --- LOGICAL ERROR FIXED ---
-                # Removed the 'if headlines: break' block
-                # to allow the loop to check ALL selectors.
             
             logger.info(f"Parsed {len(headlines)} headlines from HTML")
             
